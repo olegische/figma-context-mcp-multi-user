@@ -1,0 +1,17 @@
+services:
+  figma-mcp-multi-user:
+    image: ghcr.io/${REGISTRY_ID}/${PROJECT_NAME}:${VERSION}
+    container_name: ${PROJECT_NAME}
+    platform: linux/amd64
+    ports:
+      - "${PORT:-8660}:${PORT:-8660}"
+    # env_file:
+      # - ./.env
+    environment:
+      - TRANSPORT=sse
+      - PORT=8665
+      - HOST=0.0.0.0
+      - FIGMA_API_KEY=your_figma_api_key_here
+    restart: unless-stopped
+    volumes:
+      - ${HOME}/.${PROJECT_NAME}:/home/app/.${PROJECT_NAME}

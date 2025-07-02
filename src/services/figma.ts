@@ -9,6 +9,7 @@ import type {
 import { downloadFigmaImage } from "~/utils/common.js";
 import { Logger } from "~/utils/logger.js";
 import { fetchWithRetry } from "~/utils/fetch-with-retry.js";
+import { getCurrentContext } from "../context.js";
 import yaml from "js-yaml";
 
 export type FigmaAuthOptions = {
@@ -55,17 +56,28 @@ export class FigmaService {
     try {
       Logger.log(`Calling ${this.baseUrl}${endpoint}`);
 
+      // Get current request context for multi-tenant support
+      const context = getCurrentContext();
+      
       // Set auth headers based on authentication method
+      // Headers ALWAYS override base configuration
       const headers: Record<string, string> = {};
 
-      if (this.useOAuth) {
+      // Determine which credentials to use: context (from headers) > base config
+      const figmaApiKey = context?.figmaApiKey || this.apiKey;
+      const figmaOAuthToken = context?.figmaOAuthToken || this.oauthToken;
+      const useOAuth = context?.figmaOAuthToken ? true : this.useOAuth;
+
+      if (useOAuth && figmaOAuthToken) {
         // Use OAuth token with Authorization: Bearer header
-        Logger.log("Using OAuth Bearer token for authentication");
-        headers["Authorization"] = `Bearer ${this.oauthToken}`;
-      } else {
+        Logger.log("Using OAuth Bearer token for authentication" + (context?.figmaOAuthToken ? " (from request context)" : " (from base config)"));
+        headers["Authorization"] = `Bearer ${figmaOAuthToken}`;
+      } else if (figmaApiKey) {
         // Use Personal Access Token with X-Figma-Token header
-        Logger.log("Using Personal Access Token for authentication");
-        headers["X-Figma-Token"] = this.apiKey;
+        Logger.log("Using Personal Access Token for authentication" + (context?.figmaApiKey ? " (from request context)" : " (from base config)"));
+        headers["X-Figma-Token"] = figmaApiKey;
+      } else {
+        throw new Error("No Figma credentials available. Provide either x-figma-api-key or x-figma-oauth-token header, or configure base server credentials.");
       }
 
       return await fetchWithRetry<T>(`${this.baseUrl}${endpoint}`, {

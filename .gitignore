@@ -11,6 +11,9 @@ dist
 .env.local
 .env.*.local
 
+# Security
+secrets/
+
 # IDE
 .vscode/*
 !.vscode/extensions.json

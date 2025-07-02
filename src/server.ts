@@ -6,6 +6,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { Server } from "http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Logger } from "./utils/logger.js";
+import { requestContextStorage, extractCredentialsFromHeaders, type RequestContext } from "./context.js";
 
 let httpServer: Server | null = null;
 const transports = {
@@ -13,7 +14,7 @@ const transports = {
   sse: {} as Record<string, SSEServerTransport>,
 };
 
-export async function startHttpServer(port: number, mcpServer: McpServer): Promise<void> {
+export async function startHttpServer(port: number, host: string, mcpServer: McpServer): Promise<void> {
   const app = express();
 
   // Parse JSON requests for the Streamable HTTP endpoint only, will break SSE endpoint
@@ -127,7 +128,18 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
     Logger.log("/sse request headers:", req.headers);
     Logger.log("/sse request body:", req.body);
 
+    // Extract credentials from headers and store them with the transport
+    const credentials = extractCredentialsFromHeaders(req.headers);
+    const context: RequestContext = {
+      ...credentials,
+      sessionId: transport.sessionId,
+    };
+
+    // Store both transport and context
     transports.sse[transport.sessionId] = transport;
+    // Store context for this SSE session
+    (transport as any)._requestContext = context;
+    
     res.on("close", () => {
       delete transports.sse[transport.sessionId];
     });
@@ -135,25 +147,32 @@ export async function startHttpServer(port: number, mcpServer: McpServer): Promi
     await mcpServer.connect(transport);
   });
 
-  app.post("/messages", async (req, res) => {
+  app.post("/messages", express.json(), async (req, res) => {
     const sessionId = req.query.sessionId as string;
     const transport = transports.sse[sessionId];
     if (transport) {
       Logger.log(`Received SSE message for sessionId ${sessionId}`);
       Logger.log("/messages request headers:", req.headers);
       Logger.log("/messages request body:", req.body);
-      await transport.handlePostMessage(req, res);
+      
+      // Use the stored context from SSE connection establishment
+      const storedContext = (transport as any)._requestContext as RequestContext;
+      
+      // Run the message handling within the stored request context
+      await requestContextStorage.run(storedContext, async () => {
+        await transport.handlePostMessage(req, res);
+      });
     } else {
       res.status(400).send(`No transport found for sessionId ${sessionId}`);
       return;
     }
   });
 
-  httpServer = app.listen(port, () => {
-    Logger.log(`HTTP server listening on port ${port}`);
-    Logger.log(`SSE endpoint available at http://localhost:${port}/sse`);
-    Logger.log(`Message endpoint available at http://localhost:${port}/messages`);
-    Logger.log(`StreamableHTTP endpoint available at http://localhost:${port}/mcp`);
+  httpServer = app.listen(port, host, () => {
+    Logger.log(`HTTP server listening on ${host}:${port}`);
+    Logger.log(`SSE endpoint available at http://${host}:${port}/sse`);
+    Logger.log(`Message endpoint available at http://${host}:${port}/messages`);
+    Logger.log(`StreamableHTTP endpoint available at http://${host}:${port}/mcp`);
   });
 
   process.on("SIGINT", async () => {

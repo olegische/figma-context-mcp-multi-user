@@ -7,11 +7,13 @@ import type { FigmaAuthOptions } from "./services/figma.js";
 interface ServerConfig {
   auth: FigmaAuthOptions;
   port: number;
+  host: string;
   outputFormat: "yaml" | "json";
   configSources: {
     figmaApiKey: "cli" | "env";
     figmaOAuthToken: "cli" | "env" | "none";
     port: "cli" | "env" | "default";
+    host: "env" | "default";
     outputFormat: "cli" | "env" | "default";
     envFile: "cli" | "default";
   };
@@ -83,11 +85,13 @@ export function getServerConfig(isStdioMode: boolean): ServerConfig {
 
   const config: Omit<ServerConfig, "auth"> = {
     port: 3333,
+    host: "0.0.0.0",
     outputFormat: "yaml",
     configSources: {
       figmaApiKey: "env",
       figmaOAuthToken: "none",
       port: "default",
+      host: "default",
       outputFormat: "default",
       envFile: envFileSource,
     },
@@ -120,6 +124,12 @@ export function getServerConfig(isStdioMode: boolean): ServerConfig {
   } else if (process.env.PORT) {
     config.port = parseInt(process.env.PORT, 10);
     config.configSources.port = "env";
+  }
+
+  // Handle HOST
+  if (process.env.HOST) {
+    config.host = process.env.HOST;
+    config.configSources.host = "env";
   }
 
   // Handle JSON output format
@@ -155,6 +165,7 @@ export function getServerConfig(isStdioMode: boolean): ServerConfig {
       console.log("- Authentication Method: Personal Access Token (X-Figma-Token)");
     }
     console.log(`- PORT: ${config.port} (source: ${config.configSources.port})`);
+    console.log(`- HOST: ${config.host} (source: ${config.configSources.host})`);
     console.log(
       `- OUTPUT_FORMAT: ${config.outputFormat} (source: ${config.configSources.outputFormat})`,
     );
