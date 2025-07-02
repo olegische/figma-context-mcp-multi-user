@@ -7,6 +7,25 @@ import { Server } from "http";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { Logger } from "./utils/logger.js";
 import { requestContextStorage, extractCredentialsFromHeaders, type RequestContext } from "./context.js";
+import { maskApiKey } from "./config.js";
+
+function maskSensitiveHeaders(headers: Record<string, any>): Record<string, any> {
+  const sensitiveHeaders = ['x-figma-api-key', 'x-figma-oauth-token', 'authorization'];
+  const masked = { ...headers };
+  
+  for (const key of Object.keys(masked)) {
+    if (sensitiveHeaders.includes(key.toLowerCase())) {
+      const value = masked[key];
+      if (typeof value === 'string') {
+        masked[key] = maskApiKey(value);
+      } else {
+        masked[key] = '****';
+      }
+    }
+  }
+  
+  return masked;
+}
 
 let httpServer: Server | null = null;
 const transports = {
@@ -125,7 +144,7 @@ export async function startHttpServer(port: number, host: string, mcpServer: Mcp
     Logger.log("Establishing new SSE connection");
     const transport = new SSEServerTransport("/messages", res);
     Logger.log(`New SSE connection established for sessionId ${transport.sessionId}`);
-    Logger.log("/sse request headers:", req.headers);
+    Logger.log("/sse request headers:", maskSensitiveHeaders(req.headers));
     Logger.log("/sse request body:", req.body);
 
     // Extract credentials from headers and store them with the transport
@@ -147,13 +166,12 @@ export async function startHttpServer(port: number, host: string, mcpServer: Mcp
     await mcpServer.connect(transport);
   });
 
-  app.post("/messages", express.json(), async (req, res) => {
+  app.post("/messages", async (req, res) => {
     const sessionId = req.query.sessionId as string;
     const transport = transports.sse[sessionId];
     if (transport) {
       Logger.log(`Received SSE message for sessionId ${sessionId}`);
-      Logger.log("/messages request headers:", req.headers);
-      Logger.log("/messages request body:", req.body);
+      Logger.log("/messages request headers:", maskSensitiveHeaders(req.headers));
       
       // Use the stored context from SSE connection establishment
       const storedContext = (transport as any)._requestContext as RequestContext;

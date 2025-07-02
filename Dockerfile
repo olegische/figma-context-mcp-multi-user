@@ -6,13 +6,16 @@ RUN apk --no-cache add nodejs npm
 
 WORKDIR /app
 
+# Install pnpm globally
+RUN npm install -g pnpm
+
 # Install dependencies (Docker build cache friendly)
-COPY package.json package-lock.json tsconfig.json ./
+COPY package.json pnpm-lock.yaml tsconfig.json tsup.config.ts ./
 COPY src/ ./src/
-RUN npm install
+RUN pnpm install --no-frozen-lockfile
 
 COPY run-docker.sh ./
-RUN npm run build
+RUN pnpm run build
 
 # Future-proof the CLI and require the "stdio" argument
 ENV RUNNING_IN_CONTAINER="true"

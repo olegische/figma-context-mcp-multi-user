@@ -10,8 +10,8 @@ interface ServerConfig {
   host: string;
   outputFormat: "yaml" | "json";
   configSources: {
-    figmaApiKey: "cli" | "env";
-    figmaOAuthToken: "cli" | "env" | "none";
+    figmaApiKey: "cli" | "env" | "headers";
+    figmaOAuthToken: "cli" | "env" | "headers" | "none";
     port: "cli" | "env" | "default";
     host: "env" | "default";
     outputFormat: "cli" | "env" | "default";
@@ -19,7 +19,7 @@ interface ServerConfig {
   };
 }
 
-function maskApiKey(key: string): string {
+export function maskApiKey(key: string): string {
   if (!key || key.length <= 4) return "****";
   return `****${key.slice(-4)}`;
 }
@@ -141,19 +141,33 @@ export function getServerConfig(isStdioMode: boolean): ServerConfig {
     config.configSources.outputFormat = "env";
   }
 
-  // Validate configuration
-  if (!auth.figmaApiKey && !auth.figmaOAuthToken) {
+  // In stdio mode (MCP), credentials must be provided via CLI or env
+  // In server mode (HTTP), credentials can come from request headers
+  if (isStdioMode && !auth.figmaApiKey && !auth.figmaOAuthToken) {
     console.error(
-      "Either FIGMA_API_KEY or FIGMA_OAUTH_TOKEN is required (via CLI argument or .env file)",
+      "Either FIGMA_API_KEY or FIGMA_OAUTH_TOKEN is required for stdio mode (via CLI argument or .env file)",
     );
     process.exit(1);
+  }
+
+  // Update config sources to indicate headers availability in server mode
+  if (!isStdioMode) {
+    if (!auth.figmaApiKey && !auth.figmaOAuthToken) {
+      // No base credentials, will rely on headers
+      config.configSources.figmaApiKey = "headers";
+      config.configSources.figmaOAuthToken = "headers";
+    }
   }
 
   // Log configuration sources
   if (!isStdioMode) {
     console.log("\nConfiguration:");
     console.log(`- ENV_FILE: ${envFilePath} (source: ${config.configSources.envFile})`);
-    if (auth.useOAuth) {
+    
+    if (config.configSources.figmaApiKey === "headers" || config.configSources.figmaOAuthToken === "headers") {
+      console.log("- FIGMA_CREDENTIALS: Will be provided via request headers (multi-tenant mode)");
+      console.log("- Authentication Method: Dynamic (based on request headers)");
+    } else if (auth.useOAuth) {
       console.log(
         `- FIGMA_OAUTH_TOKEN: ${maskApiKey(auth.figmaOAuthToken)} (source: ${config.configSources.figmaOAuthToken})`,
       );
@@ -164,6 +178,7 @@ export function getServerConfig(isStdioMode: boolean): ServerConfig {
       );
       console.log("- Authentication Method: Personal Access Token (X-Figma-Token)");
     }
+    
     console.log(`- PORT: ${config.port} (source: ${config.configSources.port})`);
     console.log(`- HOST: ${config.host} (source: ${config.configSources.host})`);
     console.log(
